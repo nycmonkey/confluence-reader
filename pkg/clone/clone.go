@@ -9,20 +9,34 @@ import (
 	"sync"
 
 	"github.com/nycmonkey/confluence-reader/pkg/client"
+	"github.com/nycmonkey/confluence-reader/pkg/markdown"
 )
 
 // Cloner handles the cloning of Confluence content
 type Cloner struct {
-	client    *client.Client
-	outputDir string
+	client         *client.Client
+	outputDir      string
+	exportMarkdown bool
+	converter      *markdown.Converter
+	domain         string
 }
 
 // NewCloner creates a new Cloner instance
 func NewCloner(c *client.Client, outputDir string) *Cloner {
 	return &Cloner{
-		client:    c,
-		outputDir: outputDir,
+		client:         c,
+		outputDir:      outputDir,
+		exportMarkdown: false,
+		converter:      nil,
+		domain:         "",
 	}
+}
+
+// EnableMarkdownExport enables markdown export alongside HTML
+func (cl *Cloner) EnableMarkdownExport(domain string) {
+	cl.exportMarkdown = true
+	cl.converter = markdown.NewConverter()
+	cl.domain = domain
 }
 
 // Clone performs the full clone operation
@@ -103,7 +117,7 @@ func (cl *Cloner) cloneSpace(space client.Space) error {
 	for j, page := range pages {
 		wg.Add(1)
 
-		go func(index int, p client.Page) {
+		go func(index int, p client.Page, spaceKey string) {
 			defer wg.Done()
 
 			// Acquire semaphore
@@ -114,12 +128,12 @@ func (cl *Cloner) cloneSpace(space client.Space) error {
 			fmt.Printf("  [%d/%d] Cloning page: %s\n", index+1, len(pages), p.Title)
 			mu.Unlock()
 
-			if err := cl.clonePage(p, pagesDir); err != nil {
+			if err := cl.clonePage(p, pagesDir, spaceKey); err != nil {
 				mu.Lock()
 				fmt.Printf("    Warning: Failed to clone page %s: %v\n", p.Title, err)
 				mu.Unlock()
 			}
-		}(j, page)
+		}(j, page, space.Key)
 	}
 
 	wg.Wait()
@@ -127,7 +141,7 @@ func (cl *Cloner) cloneSpace(space client.Space) error {
 }
 
 // clonePage clones a single page
-func (cl *Cloner) clonePage(page client.Page, pagesDir string) error {
+func (cl *Cloner) clonePage(page client.Page, pagesDir string, spaceKey string) error {
 	// Get full page content
 	fullPage, err := cl.client.GetPage(page.ID)
 	if err != nil {
@@ -166,6 +180,19 @@ func (cl *Cloner) clonePage(page client.Page, pagesDir string) error {
 		contentPath := filepath.Join(pageDir, "content.html")
 		if err := os.WriteFile(contentPath, []byte(fullPage.Body.Storage.Value), 0644); err != nil {
 			return fmt.Errorf("failed to save page content: %w", err)
+		}
+
+		// Export markdown if enabled
+		if cl.exportMarkdown {
+			md, err := cl.convertPageToMarkdown(*fullPage, spaceKey)
+			if err != nil {
+				fmt.Printf("    Warning: Failed to convert to markdown: %v\n", err)
+			} else {
+				mdPath := filepath.Join(pageDir, "content.md")
+				if err := os.WriteFile(mdPath, []byte(md), 0644); err != nil {
+					fmt.Printf("    Warning: Failed to save markdown: %v\n", err)
+				}
+			}
 		}
 	}
 
@@ -248,4 +275,37 @@ func saveJSON(filepath string, data interface{}) error {
 		return err
 	}
 	return os.WriteFile(filepath, jsonData, 0644)
+}
+
+// convertPageToMarkdown converts a page to markdown with frontmatter
+func (cl *Cloner) convertPageToMarkdown(page client.Page, spaceKey string) (string, error) {
+	if page.Body == nil || page.Body.Storage == nil {
+		return "", fmt.Errorf("page has no content")
+	}
+
+	// Extract metadata
+	var versionNumber int
+	var author string
+	if page.Version != nil {
+		versionNumber = page.Version.Number
+	}
+
+	// Build page URL
+	pageURL := ""
+	if cl.domain != "" {
+		pageURL = fmt.Sprintf("https://%s/wiki/spaces/%s/pages/%s", cl.domain, spaceKey, page.ID)
+	}
+
+	meta := markdown.PageMetadata{
+		Title:    page.Title,
+		PageID:   page.ID,
+		SpaceKey: spaceKey,
+		Version:  versionNumber,
+		Author:   author,
+		ParentID: page.ParentID,
+		URL:      pageURL,
+	}
+
+	// Convert with metadata
+	return cl.converter.ConvertWithMetadata(page.Body.Storage.Value, meta)
 }

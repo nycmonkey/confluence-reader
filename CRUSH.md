@@ -11,6 +11,21 @@
 - Interactive CLI with environment variable support
 - Single binary deployment (cross-platform)
 
+## 🚧 Active Development
+
+**Current Status**: See `STATE.md` for up-to-date project state
+
+**Quick Summary**:
+- Phase 2 Complete ✅ - Markdown export feature integrated
+- 7/7 converter tests passing
+- Ready for Phase 3 (E2E testing)
+
+**For Current Work**: Always check `STATE.md` first for:
+- Current focus and what's being worked on
+- Next 3 actions (prioritized)
+- Recent decisions and rationale
+- Any blockers needing attention
+
 ## Essential Commands
 
 ### Build & Run
@@ -28,6 +43,14 @@ CONFLUENCE_DOMAIN="company.atlassian.net" \
 CONFLUENCE_EMAIL="user@example.com" \
 CONFLUENCE_API_TOKEN="token" \
 CONFLUENCE_OUTPUT_DIR="./backups/$(date +%Y%m%d_%H%M%S)" \
+./confluence-reader
+
+# Run with markdown export enabled
+CONFLUENCE_DOMAIN="company.atlassian.net" \
+CONFLUENCE_EMAIL="user@example.com" \
+CONFLUENCE_API_TOKEN="token" \
+CONFLUENCE_OUTPUT_DIR="./output" \
+CONFLUENCE_EXPORT_MARKDOWN=true \
 ./confluence-reader
 ```
 
@@ -277,14 +300,30 @@ func TestGetSpaces(t *testing.T) {
 
 ## Recent Changes
 
-### Concurrent Page Cloning (Latest)
+### Markdown Export Feature (Latest)
+- **Added:** LLM-friendly Markdown export with YAML frontmatter
+- **Implementation:** 
+  - `pkg/markdown/converter.go` - HTML→Markdown conversion with `ConvertWithMetadata()`
+  - `pkg/clone/clone.go` - Integration with clone pipeline
+  - `PageMetadata` type for frontmatter (title, ID, space, version, author, parent, URL)
+- **Usage:** Set `CONFLUENCE_EXPORT_MARKDOWN=true` environment variable
+- **Output:** Both `content.html` and `content.md` saved for each page
+- **Features:**
+  - YAML frontmatter with metadata
+  - Clean Markdown suitable for LLMs
+  - Confluence macros converted (code blocks, panels, internal links)
+  - Graceful degradation on conversion errors
+- **Tests:** 7/7 passing (includes frontmatter generation and YAML escaping)
+- **Documentation:** Complete README update with usage examples
+
+### Concurrent Page Cloning
 - **Added:** Concurrent page processing with semaphore pattern
 - **Concurrency limit:** 5 pages at once (hardcoded in `clone.go`)
 - **Thread-safety:** Mutex protects console output
 - **Pattern:** Uses `sync.WaitGroup` + buffered channel semaphore
 - **Performance:** 3-5x faster on spaces with many pages
 
-### Attachment Download Fix (Latest)
+### Attachment Download Fix
 - **Issue:** Confluence API inconsistently returns `downloadLink` as string OR object
 - **Error:** `json: cannot unmarshal string into Go struct field`
 - **Fix:** Custom `UnmarshalJSON` method tries both formats
@@ -308,6 +347,7 @@ func TestGetSpaces(t *testing.T) {
   - `CONFLUENCE_EMAIL` 
   - `CONFLUENCE_API_TOKEN` (create at https://id.atlassian.com/manage-profile/security/api-tokens)
   - `CONFLUENCE_OUTPUT_DIR` (optional, defaults to `./confluence-data`)
+  - `CONFLUENCE_EXPORT_MARKDOWN` (optional, set to `true` to enable markdown export)
 
 ### 3. Authentication
 - Uses **HTTP Basic Auth** with email + API token
@@ -492,23 +532,41 @@ open coverage.html  # macOS
 
 ## Documentation
 
-### For Users
-- **README.md** - Complete user guide (installation, features, usage)
-- **USAGE.md** - Practical examples and use cases  
-- **QUICKREF.md** - Quick reference for common tasks
-- **.env.example** - Configuration template with comments
+### Root Level (Primary)
+- **STATE.md** - 🎯 **START HERE** - Current project state, next actions, recent decisions
+- **README.md** - Complete user guide (installation, features, usage, markdown export)
+- **CRUSH.md** - This file (agent reference guide with patterns, commands, conventions)
 
-### For Developers  
-- **ARCHITECTURE.md** - Deep technical documentation (2000+ words)
-- **PROJECT_SUMMARY.md** - High-level overview and completion checklist
-- **CRUSH.md** - This file (agent working guide)
-- **Inline comments** - Code-level documentation
+### docs/ Directory (Development)
+- **docs/AGENT.md** - Agent workflow guidelines
+- **docs/README.md** - Documentation index
+- **docs/architecture.md** - Technical design for markdown export
+- **docs/PHASE_2_COMPLETE.md** - Phase 2 implementation details
+- **docs/CONFLUENCE_FORMATS.md** - HTML pattern analysis (479 pages)
+- **docs/MARKDOWN_EXPORT_PLAN.md** - Original 7-phase plan
+- **docs/SESSION_SUMMARY.md** - Latest session recap
+- **docs/archive/** - Historical state tracking files (goals, progress, learnings, etc.)
 
 ### When to Update Documentation
-- **README**: User-facing features, requirements, output format changes
-- **ARCHITECTURE**: Technical changes, new endpoints, data flow changes
-- **CRUSH.md**: New patterns, gotchas, commands, or development workflows
-- **USAGE.md**: New use cases or examples
+- **STATE.md**: After every decision, task completion, or when changing focus (UPDATE FREQUENTLY)
+- **README.md**: User-facing features, requirements, output format, usage examples
+- **CRUSH.md**: New patterns, gotchas, commands, development workflows (reference material)
+- **docs/**: Deep technical details, research artifacts, historical records
+
+### Documentation Workflow (New)
+1. **Start session**: Read `STATE.md` first (Current Focus + Next Actions)
+2. **During work**: Update `STATE.md` Decision Log when making key decisions
+3. **After completing work**: Update `STATE.md` Current Focus + Next Actions
+4. **When blocked**: Add to `STATE.md` Blockers section
+5. **For reference**: Consult `CRUSH.md` for commands, patterns, conventions
+6. **For users**: Update `README.md` for user-facing changes
+
+### Documentation Structure Rules
+- **STATE.md**: Single source of truth for "what's happening now" (living doc)
+- **Root README.md**: User documentation only (how to install, use, understand output)
+- **CRUSH.md**: Agent reference guide (commands, patterns, technical details that don't change often)
+- **docs/**: All development documentation (planning, research, decisions, technical details)
+- **Never create** `Documentation/` directory - use `docs/` instead
 
 ## Performance Characteristics
 
@@ -634,10 +692,17 @@ GOOS=windows GOARCH=amd64 go build
 
 ---
 
-**Last Updated:** 2025-01-11  
-**Project Version:** 1.0  
+**Last Updated:** 2025-11-12  
+**Project Version:** 2.0 (with Markdown export)  
 **Go Version:** 1.21+  
+
+**For Current State**: See `STATE.md` (updated after every significant change)
+
 **Recent Changes:**
-- Added concurrent page cloning (5 workers)
-- Fixed attachment downloadLink parsing issue
-- Fixed go.mod version (was 1.25.4, now 1.21)
+- 2025-11-12: Documentation consolidation - Created STATE.md, archived old state tracking files
+- 2025-11-12: Added markdown export feature with YAML frontmatter (Phase 2 complete)
+- 2025-11-12: 7 markdown converter tests passing
+- 2025-11-12: Complete README documentation for markdown usage
+- 2025-11-10: Added concurrent page cloning (5 workers)
+- 2025-11-10: Fixed attachment downloadLink parsing issue
+- 2025-11-10: Fixed go.mod version (was 1.25.4, now 1.21)

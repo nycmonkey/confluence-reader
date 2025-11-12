@@ -1,0 +1,9 @@
+confluence-reader
+confluence-data/
+test-sample/
+*.token
+.env
+coverage.out
+coverage.html
+analysis-results.txt
+CONFLUENCE_FORMATS.md

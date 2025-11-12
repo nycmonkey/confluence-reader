@@ -20,6 +20,7 @@ func main() {
 	email := os.Getenv("CONFLUENCE_EMAIL")
 	apiToken := os.Getenv("CONFLUENCE_API_TOKEN")
 	outputDir := os.Getenv("CONFLUENCE_OUTPUT_DIR")
+	exportMarkdown := os.Getenv("CONFLUENCE_EXPORT_MARKDOWN")
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -74,6 +75,11 @@ func main() {
 		fmt.Printf("Using output directory from environment: %s\n", outputDir)
 	}
 
+	// Check markdown export flag
+	if exportMarkdown == "true" {
+		fmt.Println("Markdown export enabled")
+	}
+
 	fmt.Println()
 	fmt.Println("Initializing Confluence client...")
 
@@ -82,6 +88,11 @@ func main() {
 
 	// Create cloner
 	cloner := clone.NewCloner(c, outputDir)
+
+	// Enable markdown export if requested
+	if exportMarkdown == "true" {
+		cloner.EnableMarkdownExport(domain)
+	}
 
 	// Start cloning
 	fmt.Println("Starting clone process...")
