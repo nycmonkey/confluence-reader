@@ -222,14 +222,51 @@ func (c *Client) GetPage(pageID string) (*Page, error) {
 
 // Attachment represents a page attachment
 type Attachment struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Title    string `json:"title"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Title     string `json:"title"`
 	MediaType string `json:"mediaType"`
-	FileSize int64  `json:"fileSize"`
-	Download *struct {
+	FileSize  int64  `json:"fileSize"`
+	Download  *struct {
 		URL string `json:"url"`
-	} `json:"downloadLink"`
+	} `json:"-"` // Handled by custom unmarshaler
+	DownloadURL string `json:"-"` // Extracted URL
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Attachment
+// The Confluence API inconsistently returns downloadLink as either a string or an object
+func (a *Attachment) UnmarshalJSON(data []byte) error {
+	// Create an alias to avoid recursion
+	type Alias Attachment
+	aux := &struct {
+		DownloadLink json.RawMessage `json:"downloadLink"`
+		*Alias
+	}{
+		Alias: (*Alias)(a),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Try to parse downloadLink as a string first
+	var urlString string
+	if err := json.Unmarshal(aux.DownloadLink, &urlString); err == nil {
+		a.DownloadURL = urlString
+		return nil
+	}
+
+	// If that fails, try to parse as an object
+	var urlObj struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(aux.DownloadLink, &urlObj); err == nil {
+		a.DownloadURL = urlObj.URL
+		return nil
+	}
+
+	// If both fail, leave DownloadURL empty (will be handled gracefully)
+	return nil
 }
 
 // AttachmentResponse is the response for listing attachments

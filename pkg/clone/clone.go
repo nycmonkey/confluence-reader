@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/nycmonkey/confluence-reader/pkg/client"
 )
@@ -93,15 +94,35 @@ func (cl *Cloner) cloneSpace(space client.Space) error {
 		return fmt.Errorf("failed to create pages directory: %w", err)
 	}
 
-	// Clone each page
+	// Clone each page concurrently with limited concurrency
+	const maxConcurrent = 5
+	semaphore := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var mu sync.Mutex // Protect console output
+
 	for j, page := range pages {
-		fmt.Printf("  [%d/%d] Cloning page: %s\n", j+1, len(pages), page.Title)
-		if err := cl.clonePage(page, pagesDir); err != nil {
-			fmt.Printf("    Warning: Failed to clone page %s: %v\n", page.Title, err)
-			continue
-		}
+		wg.Add(1)
+
+		go func(index int, p client.Page) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			mu.Lock()
+			fmt.Printf("  [%d/%d] Cloning page: %s\n", index+1, len(pages), p.Title)
+			mu.Unlock()
+
+			if err := cl.clonePage(p, pagesDir); err != nil {
+				mu.Lock()
+				fmt.Printf("    Warning: Failed to clone page %s: %v\n", p.Title, err)
+				mu.Unlock()
+			}
+		}(j, page)
 	}
 
+	wg.Wait()
 	return nil
 }
 
@@ -173,11 +194,11 @@ func (cl *Cloner) clonePage(page client.Page, pagesDir string) error {
 
 // downloadAttachment downloads and saves an attachment
 func (cl *Cloner) downloadAttachment(attachment client.Attachment, attachmentsDir string) error {
-	if attachment.Download == nil || attachment.Download.URL == "" {
+	if attachment.DownloadURL == "" {
 		return fmt.Errorf("no download URL available")
 	}
 
-	data, err := cl.client.DownloadAttachment(attachment.Download.URL)
+	data, err := cl.client.DownloadAttachment(attachment.DownloadURL)
 	if err != nil {
 		return err
 	}
