@@ -104,6 +104,9 @@ func preProcess(html string) string {
 	// Remove TOC macros (redundant in Markdown)
 	html = removeTOCMacros(html)
 
+	// Convert Confluence emoticons to Unicode emoji
+	html = convertEmoticons(html)
+
 	// Convert Confluence code macros to standard pre/code
 	html = convertCodeMacros(html)
 
@@ -127,6 +130,51 @@ func removeTOCMacros(html string) string {
 
 	// Also remove wrapping paragraphs if they're now empty
 	html = strings.ReplaceAll(html, "<p></p>", "")
+
+	return html
+}
+
+// convertEmoticons converts Confluence emoticon tags to Unicode emoji
+func convertEmoticons(html string) string {
+	// Map Confluence emoticon names to Unicode emoji
+	emoticons := map[string]string{
+		"smile":         "😊",
+		"sad":           "😞",
+		"cheeky":        "😜",
+		"laugh":         "😆",
+		"wink":          "😉",
+		"thumbs-up":     "👍",
+		"thumbs-down":   "👎",
+		"tick":          "✅",
+		"cross":         "❌",
+		"warning":       "⚠️",
+		"information":   "ℹ️",
+		"tick-box":      "☑️",
+		"question":      "❓",
+		"light-on":      "💡",
+		"light-off":     "🔦",
+		"star":          "⭐",
+		"heart":         "❤️",
+		"plus":          "➕",
+		"minus":         "➖",
+		"flag":          "🚩",
+	}
+
+	// Pattern: <ac:emoticon ac:name="emoticon_name" />
+	re := regexp.MustCompile(`<ac:emoticon\s+ac:name="([^"]+)"\s*/>`)
+
+	html = re.ReplaceAllStringFunc(html, func(match string) string {
+		matches := re.FindStringSubmatch(match)
+		if len(matches) > 1 {
+			name := matches[1]
+			if emoji, ok := emoticons[name]; ok {
+				return emoji
+			}
+			// Unknown emoticon - return text placeholder
+			return fmt.Sprintf(":%s:", name)
+		}
+		return match
+	})
 
 	return html
 }

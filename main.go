@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/nycmonkey/confluence-reader/pkg/client"
@@ -21,6 +22,18 @@ func main() {
 	apiToken := os.Getenv("CONFLUENCE_API_TOKEN")
 	outputDir := os.Getenv("CONFLUENCE_OUTPUT_DIR")
 	exportMarkdown := os.Getenv("CONFLUENCE_EXPORT_MARKDOWN")
+	sampleSpacesStr := os.Getenv("CONFLUENCE_SAMPLE_SPACES")
+	samplePagesStr := os.Getenv("CONFLUENCE_SAMPLE_PAGES")
+
+	// Parse sampling values
+	sampleSpaces, err := strconv.Atoi(sampleSpacesStr)
+	if err != nil {
+		sampleSpaces = 0
+	}
+	samplePages, err := strconv.Atoi(samplePagesStr)
+	if err != nil {
+		samplePages = 0
+	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -87,7 +100,7 @@ func main() {
 	c := client.NewClient(domain, email, apiToken)
 
 	// Create cloner
-	cloner := clone.NewCloner(c, outputDir)
+	cloner := clone.NewCloner(c, outputDir, sampleSpaces, samplePages)
 
 	// Enable markdown export if requested
 	if exportMarkdown == "true" {

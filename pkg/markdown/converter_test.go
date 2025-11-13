@@ -208,3 +208,53 @@ func TestFrontmatterYAMLEscaping(t *testing.T) {
 
 	t.Logf("Result:\n%s", markdown)
 }
+
+func TestEmoticonConversion(t *testing.T) {
+	tests := []struct {
+		name     string
+		html     string
+		expected string
+	}{
+		{
+			name:     "tick emoticon",
+			html:     `<p>Test passed <ac:emoticon ac:name="tick" /></p>`,
+			expected: "✅",
+		},
+		{
+			name:     "cross emoticon",
+			html:     `<p>Test failed <ac:emoticon ac:name="cross" /></p>`,
+			expected: "❌",
+		},
+		{
+			name:     "warning emoticon",
+			html:     `<p><ac:emoticon ac:name="warning" /> Be careful!</p>`,
+			expected: "⚠️",
+		},
+		{
+			name:     "multiple emoticons",
+			html:     `<p><ac:emoticon ac:name="tick" /> Success <ac:emoticon ac:name="cross" /> Failed</p>`,
+			expected: "✅",
+		},
+		{
+			name:     "unknown emoticon",
+			html:     `<p><ac:emoticon ac:name="unknown-emoji" /></p>`,
+			expected: ":unknown-emoji:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conv := NewConverter()
+			markdown, err := conv.Convert(tt.html)
+			if err != nil {
+				t.Fatalf("Conversion failed: %v", err)
+			}
+
+			if !contains(markdown, tt.expected) {
+				t.Errorf("Expected markdown to contain '%s', got:\n%s", tt.expected, markdown)
+			}
+
+			t.Logf("Result:\n%s", markdown)
+		})
+	}
+}

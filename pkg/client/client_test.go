@@ -4,8 +4,33 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
+
+// setupTest creates a test server and a client configured to use it.
+// It returns the client, the server's URL, and a teardown function.
+func setupTest(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Server) {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		server.Close()
+		t.Fatalf("Failed to parse server URL: %v", err)
+	}
+
+	client := &Client{
+		scheme:     serverURL.Scheme,
+		domain:     serverURL.Host,
+		email:      "user@example.com",
+		apiToken:   "test-token",
+		httpClient: http.DefaultClient,
+	}
+
+	return client, server
+}
 
 func TestNewClient(t *testing.T) {
 	client := NewClient("example.atlassian.net", "user@example.com", "test-token")
@@ -14,9 +39,12 @@ func TestNewClient(t *testing.T) {
 		t.Fatal("Expected client to be created")
 	}
 
-	expected := "https://example.atlassian.net/wiki/api/v2"
-	if client.baseURL != expected {
-		t.Errorf("Expected baseURL %s, got %s", expected, client.baseURL)
+	if client.domain != "example.atlassian.net" {
+		t.Errorf("Expected domain example.atlassian.net, got %s", client.domain)
+	}
+
+	if client.scheme != "https" {
+		t.Errorf("Expected scheme https, got %s", client.scheme)
 	}
 
 	if client.email != "user@example.com" {
@@ -29,8 +57,7 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestGetSpaces(t *testing.T) {
-	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify authentication
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "user@example.com" || pass != "test-token" {
@@ -38,8 +65,9 @@ func TestGetSpaces(t *testing.T) {
 		}
 
 		// Verify path
-		if r.URL.Path != "/spaces" {
-			t.Errorf("Expected path /spaces, got %s", r.URL.Path)
+		expectedPath := baseAPIPath + "/spaces"
+		if r.URL.Path != expectedPath {
+			t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
 		}
 
 		// Return mock response
@@ -57,16 +85,10 @@ func TestGetSpaces(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
+	})
 
-	// Create client with mock server URL
-	client := &Client{
-		baseURL:    server.URL,
-		email:      "user@example.com",
-		apiToken:   "test-token",
-		httpClient: http.DefaultClient,
-	}
+	client, server := setupTest(t, handler)
+	defer server.Close()
 
 	spaces, err := client.GetSpaces()
 	if err != nil {
@@ -83,10 +105,11 @@ func TestGetSpaces(t *testing.T) {
 }
 
 func TestGetSpacePages(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify path
-		if r.URL.Path != "/spaces/123/pages" {
-			t.Errorf("Expected path /spaces/123/pages, got %s", r.URL.Path)
+		expectedPath := baseAPIPath + "/spaces/123/pages"
+		if r.URL.Path != expectedPath {
+			t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
 		}
 
 		// Return mock response
@@ -103,15 +126,10 @@ func TestGetSpacePages(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
+	})
 
-	client := &Client{
-		baseURL:    server.URL,
-		email:      "user@example.com",
-		apiToken:   "test-token",
-		httpClient: http.DefaultClient,
-	}
+	client, server := setupTest(t, handler)
+	defer server.Close()
 
 	pages, err := client.GetSpacePages("123")
 	if err != nil {
@@ -128,10 +146,11 @@ func TestGetSpacePages(t *testing.T) {
 }
 
 func TestGetPage(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify path
-		if r.URL.Path != "/pages/456" {
-			t.Errorf("Expected path /pages/456, got %s", r.URL.Path)
+		expectedPath := baseAPIPath + "/pages/456"
+		if r.URL.Path != expectedPath {
+			t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
 		}
 
 		// Verify body-format parameter
@@ -163,15 +182,10 @@ func TestGetPage(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(page)
-	}))
-	defer server.Close()
+	})
 
-	client := &Client{
-		baseURL:    server.URL,
-		email:      "user@example.com",
-		apiToken:   "test-token",
-		httpClient: http.DefaultClient,
-	}
+	client, server := setupTest(t, handler)
+	defer server.Close()
 
 	page, err := client.GetPage("456")
 	if err != nil {
@@ -192,10 +206,11 @@ func TestGetPage(t *testing.T) {
 }
 
 func TestGetPageAttachments(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify path
-		if r.URL.Path != "/pages/456/attachments" {
-			t.Errorf("Expected path /pages/456/attachments, got %s", r.URL.Path)
+		expectedPath := baseAPIPath + "/pages/456/attachments"
+		if r.URL.Path != expectedPath {
+			t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
 		}
 
 		// Return mock response
@@ -213,15 +228,10 @@ func TestGetPageAttachments(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
+	})
 
-	client := &Client{
-		baseURL:    server.URL,
-		email:      "user@example.com",
-		apiToken:   "test-token",
-		httpClient: http.DefaultClient,
-	}
+	client, server := setupTest(t, handler)
+	defer server.Close()
 
 	attachments, err := client.GetPageAttachments("456")
 	if err != nil {
@@ -239,8 +249,9 @@ func TestGetPageAttachments(t *testing.T) {
 
 func TestPagination(t *testing.T) {
 	callCount := 0
-	var serverURL string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var serverURL *url.URL
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 
 		var response SpaceResponse
@@ -254,7 +265,7 @@ func TestPagination(t *testing.T) {
 				Links: &struct {
 					Next string `json:"next"`
 				}{
-					Next: serverURL + "/spaces?cursor=abc123",
+					Next: serverURL.String() + baseAPIPath + "/spaces?cursor=abc123",
 				},
 			}
 		} else {
@@ -268,16 +279,11 @@ func TestPagination(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
-	serverURL = server.URL
+	})
 
-	client := &Client{
-		baseURL:    server.URL,
-		email:      "user@example.com",
-		apiToken:   "test-token",
-		httpClient: http.DefaultClient,
-	}
+	client, server := setupTest(t, handler)
+	defer server.Close()
+	serverURL, _ = url.Parse(server.URL) // To construct next link
 
 	spaces, err := client.GetSpaces()
 	if err != nil {
@@ -290,5 +296,52 @@ func TestPagination(t *testing.T) {
 
 	if callCount != 2 {
 		t.Errorf("Expected 2 API calls for pagination, got %d", callCount)
+	}
+}
+
+func TestDownloadAttachment(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wiki/download/relative" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("relative content"))
+		} else if r.URL.Path == "/download/absolute" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("absolute content"))
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	client, server := setupTest(t, handler)
+	defer server.Close()
+
+	testCases := []struct {
+		name         string
+		downloadURL  string
+		expectedBody string
+	}{
+		{
+			name:         "Relative URL",
+			downloadURL:  "/download/relative", // API returns this
+			expectedBody: "relative content",   // But we request /wiki/download/relative
+		},
+		{
+			name:         "Absolute URL",
+			downloadURL:  server.URL + "/download/absolute",
+			expectedBody: "absolute content",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := client.DownloadAttachment(tc.downloadURL)
+			if err != nil {
+				t.Fatalf("DownloadAttachment failed: %v", err)
+			}
+
+			if string(body) != tc.expectedBody {
+				t.Errorf("Expected body '%s', got '%s'", tc.expectedBody, string(body))
+			}
+		})
 	}
 }

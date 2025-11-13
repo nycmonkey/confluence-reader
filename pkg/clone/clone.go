@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"math/rand"
 
 	"github.com/nycmonkey/confluence-reader/pkg/client"
 	"github.com/nycmonkey/confluence-reader/pkg/markdown"
@@ -19,16 +22,20 @@ type Cloner struct {
 	exportMarkdown bool
 	converter      *markdown.Converter
 	domain         string
+	SampleSpaces   int
+	SamplePages    int
 }
 
 // NewCloner creates a new Cloner instance
-func NewCloner(c *client.Client, outputDir string) *Cloner {
+func NewCloner(c *client.Client, outputDir string, sampleSpaces int, samplePages int) *Cloner {
 	return &Cloner{
 		client:         c,
 		outputDir:      outputDir,
 		exportMarkdown: false,
 		converter:      nil,
 		domain:         "",
+		SampleSpaces:   sampleSpaces,
+		SamplePages:    samplePages,
 	}
 }
 
@@ -53,7 +60,32 @@ func (cl *Cloner) Clone() error {
 		return fmt.Errorf("failed to get spaces: %w", err)
 	}
 
-	fmt.Printf("Found %d space(s)\n", len(spaces))
+	// Filter out personal and archived spaces
+	filteredSpaces := make([]client.Space, 0, len(spaces))
+	for _, space := range spaces {
+		if space.Type == "personal" {
+			fmt.Printf("Skipping personal space: %s (%s)\n", space.Name, space.Key)
+			continue
+		}
+		if space.Status == "archived" {
+			fmt.Printf("Skipping archived space: %s (%s)\n", space.Name, space.Key)
+			continue
+		}
+		filteredSpaces = append(filteredSpaces, space)
+	}
+	spaces = filteredSpaces
+
+	// Sample spaces if configured
+	if cl.SampleSpaces > 0 && len(spaces) > cl.SampleSpaces {
+		fmt.Printf("Sampling %d of %d spaces...\n", cl.SampleSpaces, len(spaces))
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		r.Shuffle(len(spaces), func(i, j int) {
+			spaces[i], spaces[j] = spaces[j], spaces[i]
+		})
+		spaces = spaces[:cl.SampleSpaces]
+	}
+
+	fmt.Printf("Found %d space(s) to clone\n", len(spaces))
 	fmt.Println()
 
 	// Clone each space
@@ -100,6 +132,16 @@ func (cl *Cloner) cloneSpace(space client.Space) error {
 		return fmt.Errorf("failed to get pages: %w", err)
 	}
 
+	// Sample pages if configured
+	if cl.SamplePages > 0 && len(pages) > cl.SamplePages {
+		fmt.Printf("  Sampling %d of %d pages...\n", cl.SamplePages, len(pages))
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		r.Shuffle(len(pages), func(i, j int) {
+			pages[i], pages[j] = pages[j], pages[i]
+		})
+		pages = pages[:cl.SamplePages]
+	}
+
 	fmt.Printf("  Found %d page(s)\n", len(pages))
 
 	// Create pages directory
@@ -115,6 +157,14 @@ func (cl *Cloner) cloneSpace(space client.Space) error {
 	var mu sync.Mutex // Protect console output
 
 	for j, page := range pages {
+		// Skip archived pages
+		if page.Status == "archived" {
+			mu.Lock()
+			fmt.Printf("  [%d/%d] Skipping archived page: %s\n", j+1, len(pages), page.Title)
+			mu.Unlock()
+			continue
+		}
+
 		wg.Add(1)
 
 		go func(index int, p client.Page, spaceKey string) {
@@ -222,12 +272,12 @@ func (cl *Cloner) clonePage(page client.Page, pagesDir string, spaceKey string) 
 // downloadAttachment downloads and saves an attachment
 func (cl *Cloner) downloadAttachment(attachment client.Attachment, attachmentsDir string) error {
 	if attachment.DownloadURL == "" {
-		return fmt.Errorf("no download URL available")
+		return fmt.Errorf("no download URL available (ID: %s, Title: %s)", attachment.ID, attachment.Title)
 	}
 
 	data, err := cl.client.DownloadAttachment(attachment.DownloadURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("download failed for URL '%s': %w", attachment.DownloadURL, err)
 	}
 
 	filename := sanitizeFilename(attachment.Title)

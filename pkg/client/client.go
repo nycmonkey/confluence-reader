@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -16,7 +17,8 @@ const (
 
 // Client is a Confluence API client
 type Client struct {
-	baseURL    string
+	domain     string
+	scheme     string
 	email      string
 	apiToken   string
 	httpClient *http.Client
@@ -25,7 +27,8 @@ type Client struct {
 // NewClient creates a new Confluence API client
 func NewClient(domain, email, apiToken string) *Client {
 	return &Client{
-		baseURL:  fmt.Sprintf("https://%s%s", domain, baseAPIPath),
+		domain:   domain,
+		scheme:   "https",
 		email:    email,
 		apiToken: apiToken,
 		httpClient: &http.Client{
@@ -36,12 +39,17 @@ func NewClient(domain, email, apiToken string) *Client {
 
 // doRequest performs an HTTP request with authentication
 func (c *Client) doRequest(method, path string, queryParams url.Values) ([]byte, error) {
-	reqURL := c.baseURL + path
-	if len(queryParams) > 0 {
-		reqURL += "?" + queryParams.Encode()
+	u := url.URL{
+		Scheme: c.scheme,
+		Host:   c.domain,
+		Path:   baseAPIPath + path,
 	}
 
-	req, err := http.NewRequest(method, reqURL, nil)
+	if len(queryParams) > 0 {
+		u.RawQuery = queryParams.Encode()
+	}
+
+	req, err := http.NewRequest(method, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -321,7 +329,22 @@ func (c *Client) GetPageAttachments(pageID string) ([]Attachment, error) {
 
 // DownloadAttachment downloads an attachment to a writer
 func (c *Client) DownloadAttachment(downloadURL string) ([]byte, error) {
-	req, err := http.NewRequest("GET", downloadURL, nil)
+	u, err := url.Parse(downloadURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid download URL: %w", err)
+	}
+
+	// Handle relative URLs - Confluence API v2 returns relative paths
+	if !u.IsAbs() {
+		u.Scheme = c.scheme
+		u.Host = c.domain
+		// API v2 returns paths like "/download/attachments/..." but Confluence Cloud needs "/wiki/download/..."
+		if !strings.HasPrefix(u.Path, "/wiki/") && strings.HasPrefix(u.Path, "/download/") {
+			u.Path = "/wiki" + u.Path
+		}
+	}
+
+	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create download request: %w", err)
 	}
